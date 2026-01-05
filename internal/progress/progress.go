@@ -8,6 +8,7 @@ import (
 
 type Tracker struct {
 	mu     sync.Mutex
+	wg     sync.WaitGroup
 	counts map[string]int
 	done   chan struct{}
 }
@@ -26,14 +27,16 @@ func (t *Tracker) Increment(source string) {
 }
 
 func (t *Tracker) Start() {
+	t.wg.Add(1)
 	go func() {
+		defer t.wg.Done()
 		ticker := time.NewTicker(300 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-t.done:
-				fmt.Print("\r")
+				fmt.Println()
 				return
 			case <-ticker.C:
 				t.print()
@@ -44,6 +47,7 @@ func (t *Tracker) Start() {
 
 func (t *Tracker) Stop() {
 	close(t.done)
+	t.wg.Wait()
 }
 
 func (t *Tracker) print() {

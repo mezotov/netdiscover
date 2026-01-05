@@ -7,11 +7,20 @@ import (
 	"github.com/mezotov/netdiscover/internal/model"
 )
 
+const ipHeader = "IP"
+
 func PrintTable(devices []*model.Device) {
-	fmt.Printf("%-40s %-18s %-25s %-10s %-10s\n", "ID", "MAC", "VENDOR", "CONF", "HOSTNAMES")
+	fmt.Printf("%-20s %-45s %-18s %-25s %-10s %-10s\n", ipHeader, "ID", "MAC", "VENDOR", "CONF", "HOSTNAMES")
 	for _, d := range devices {
+		ip := ""
+		for addr := range d.IPs {
+			ip = addr.String()
+			break
+		}
+
 		fmt.Printf(
-			"%-40s %-18s %-25s %-10d %-10s\n",
+			"%-20s %-45s %-18s %-25s %-10d %-10s\n",
+			ip,
 			d.ID,
 			d.MAC,
 			d.Vendor,
