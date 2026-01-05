@@ -6,6 +6,8 @@ import (
 	"netdis/internal/model"
 	"strings"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Storage struct {
