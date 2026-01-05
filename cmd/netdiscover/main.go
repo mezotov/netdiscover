@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/mezotov/netdiscover/internal/api"
+	"github.com/mezotov/netdiscover/internal/config"
 	"github.com/mezotov/netdiscover/internal/correlate"
 	"github.com/mezotov/netdiscover/internal/discovery"
 	"github.com/mezotov/netdiscover/internal/output"
@@ -17,6 +20,18 @@ import (
 
 func main() {
 	printBanner()
+
+	cfg := config.Config{}
+
+	jsonOut := flag.Bool("json", false, "output JSON")
+
+	flag.BoolVar(&cfg.EnableARP, "arp", true, "enable ARP discovery")
+	flag.BoolVar(&cfg.EnableICMP, "icmp", true, "enable ICMP discovery")
+	flag.BoolVar(&cfg.EnableDNS, "dns", true, "enable reverse DNS discovery")
+	flag.DurationVar(&cfg.ScanTimeout, "timeout", 5*time.Second, "scan timeout")
+	flag.StringVar(&cfg.HTTPAddr, "http", "", "serve HTTP API")
+
+	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -28,10 +43,22 @@ func main() {
 
 	go corr.Run(ctx, sightings)
 
-	discoverers := []discovery.Discoverer{
-		discovery.NewARP(),
-		discovery.NewICMP(),
-		discovery.NewReverseDNS(),
+	var discoverers []discovery.Discoverer
+	if cfg.EnableARP {
+		discoverers = append(discoverers, discovery.NewARP())
+	}
+	if cfg.EnableICMP {
+		discoverers = append(discoverers, discovery.NewICMP())
+	}
+	if cfg.EnableDNS {
+		discoverers = append(discoverers, discovery.NewReverseDNS())
+	}
+	if cfg.HTTPAddr != "" {
+		go func() {
+			server := api.New(memStore)
+			log.Printf("HTTP API listening on %s", cfg.HTTPAddr)
+			log.Fatal(server.Start(cfg.HTTPAddr))
+		}()
 	}
 
 	for _, d := range discoverers {
@@ -42,12 +69,15 @@ func main() {
 		}(d)
 	}
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(cfg.ScanTimeout)
 	cancel()
+	time.Sleep(300 * time.Millisecond)
 
-	time.Sleep(500 * time.Millisecond)
-
-	output.PrintTable(memStore.All())
+	if *jsonOut {
+		output.PrintJSON(memStore.All())
+	} else {
+		output.PrintTable(memStore.All())
+	}
 }
 
 func printBanner() {
