@@ -6,6 +6,8 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/mezotov/netdiscover/internal/network"
+	"github.com/mezotov/netdiscover/internal/worker"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 )
@@ -21,45 +23,59 @@ func (i *ICMPDiscoverer) Name() string {
 }
 
 func (i *ICMPDiscoverer) Discover(ctx context.Context, out chan<- Sighting) error {
-	c, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	subnets, err := network.LocalSubnets()
 	if err != nil {
 		return err
 	}
-	defer c.Close()
 
-	for x := 1; x < 255; x++ {
-		ip := net.IPv4(192, 168, 0, byte(x))
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	pool := worker.New[netip.Addr](64, func(addr netip.Addr) {
 		msg := &icmp.Message{
 			Type: ipv4.ICMPTypeEcho,
 			Code: 0,
 			Body: &icmp.Echo{
 				ID:   1,
-				Seq:  x,
+				Seq:  1,
 				Data: []byte("ping"),
 			},
 		}
 
 		b, _ := msg.Marshal(nil)
-		c.WriteTo(b, &net.IPAddr{IP: ip})
+		conn.WriteTo(b, &net.IPAddr{IP: addr.AsSlice()})
 
-		c.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+		conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
 		buf := make([]byte, 1500)
-		_, peer, err := c.ReadFrom(buf)
+
+		_, peer, err := conn.ReadFrom(buf)
 		if err != nil {
-			continue
+			return
 		}
 
-		addr, ok := netip.AddrFromSlice(peer.(*net.IPAddr).IP)
+		paddr, ok := netip.AddrFromSlice(peer.(*net.IPAddr).IP)
 		if !ok {
-			continue
+			return
 		}
 
 		out <- Sighting{
-			IP:     addr,
+			IP:     paddr,
 			Source: i.Name(),
 			SeenAt: time.Now(),
 		}
+	})
+
+	for _, subnet := range subnets {
+		for ip := subnet.Addr(); subnet.Contains(ip); ip = ip.Next() {
+			pool.Submit(ip)
+		}
 	}
+
+	pool.Wait()
+	pool.Close()
 
 	return nil
 }
