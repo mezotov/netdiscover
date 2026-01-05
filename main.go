@@ -32,15 +32,6 @@ type Scanner struct {
 	serviceDetection bool
 }
 
-type ScanResult struct {
-	TimeStamp time.Time       `json:"timestamp"`
-	Network   string          `json:"network"`
-	Interface string          `json:"interface"`
-	Duration  string          `json:"duration"`
-	Total     int             `json:"total_devices"`
-	Devices   []*model.Device `json:"devices"`
-}
-
 var (
 	commonPorts = []int{21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 5900, 8080, 8443}
 	serviceMap  = map[int]string{
@@ -139,7 +130,7 @@ Fast • Beautiful • Production Ready
 	color.Cyan(banner)
 }
 
-func runSingleScan(scanner *Scanner, iface *net.Interface, lnet *net.IPNet) ScanResult {
+func runSingleScan(scanner *Scanner, iface *net.Interface, lnet *net.IPNet) model.ScanResult {
 	color.Cyan("📡 Scanning network: %s", lnet.String())
 	color.Cyan("🔌 Interface: %s", iface.Name)
 	if scanner.serviceDetection {
@@ -151,7 +142,7 @@ func runSingleScan(scanner *Scanner, iface *net.Interface, lnet *net.IPNet) Scan
 	devices := scanner.Scan()
 	duration := time.Since(start)
 
-	result := ScanResult{
+	result := model.ScanResult{
 		TimeStamp: time.Now(),
 		Network:   lnet.String(),
 		Interface: iface.Name,
@@ -288,7 +279,7 @@ func printChanges(added, removed, changed []*model.Device) {
 	}
 }
 
-func exportJSON(result ScanResult, filename string) {
+func exportJSON(result model.ScanResult, filename string) {
 	data, err := json.MarshalIndent(result, "", " ")
 	if err != nil {
 		color.Red("✗ Error creating JSON: %v", err)
