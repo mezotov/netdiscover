@@ -226,7 +226,7 @@ func (s *Storage) getDeviceServices(deviceID int) ([]model.Service, error) {
 	return services, rows.Err()
 }
 
-func (s *Storage) GetScanHistory(limit int) ([]model.ScanResult, error) {
+func (s *Storage) GetScanHistory(limit int) ([]*model.ScanResult, error) {
 	rows, err := s.db.Query(`
 		SELECT id, timestamp, network, interface, duration, total_devices
 		FROM scan_results ORDER BY timestamp DESC LIMIT ?
@@ -236,14 +236,14 @@ func (s *Storage) GetScanHistory(limit int) ([]model.ScanResult, error) {
 	}
 	defer rows.Close()
 
-	var results []model.ScanResult
+	var results []*model.ScanResult
 	for rows.Next() {
 		var r model.ScanResult
 		err := rows.Scan(&r.ID, &r.TimeStamp, &r.Network, &r.Interface, &r.Duration, &r.Total)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, r)
+		results = append(results, &r)
 	}
 
 	return results, rows.Err()

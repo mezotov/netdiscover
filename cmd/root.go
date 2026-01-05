@@ -356,7 +356,7 @@ func runHistory(cmd *cobra.Command, args []string) {
 
 	display.PrintBanner()
 	display.PrintInfo("📜 Scan History (Last 20 scans)\n")
-	display.PrintDevices(results)
+	display.PrintScanHistory(results)
 }
 
 func runStats(cmd *cobra.Command, args []string) {
