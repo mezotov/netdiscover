@@ -3,55 +3,123 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"net"
+	"netdis/internal/config"
 	"netdis/internal/model"
+	"netdis/internal/network"
+	"netdis/internal/output"
 	"netdis/internal/vendors"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fatih/color"
-	"github.com/olekukonko/tablewriter"
 )
 
 type Scanner struct {
-	network *net.IPNet
-	timeout time.Duration
-	workers int
+	network          *net.IPNet
+	timeout          time.Duration
+	workers          int
+	serviceDetection bool
 }
 
+type ScanResult struct {
+	TimeStamp time.Time       `json:"timestamp"`
+	Network   string          `json:"network"`
+	Interface string          `json:"interface"`
+	Duration  string          `json:"duration"`
+	Total     int             `json:"total_devices"`
+	Devices   []*model.Device `json:"devices"`
+}
+
+var (
+	commonPorts = []int{21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 5900, 8080, 8443}
+	serviceMap  = map[int]string{
+		21:   "ftp",
+		22:   "SSH",
+		23:   "Telnet",
+		25:   "SMTP",
+		53:   "DNS",
+		80:   "HTTP",
+		110:  "POP3",
+		143:  "IMAP",
+		443:  "HTTPS",
+		445:  "SMB",
+		3306: "MySQL",
+		3389: "RDP",
+		5432: "PostgreSQL",
+		5900: "VNC",
+		8080: "HTTP-Alt",
+		8443: "HTTPS-Alt",
+	}
+)
+
 func main() {
+	cfg := parseFlags()
+
 	printBanner()
 
-	iface, network, err := getLocalNetwork()
+	iface, lnet, err := network.GetLocalNetwork()
 	if err != nil {
 		color.Red("✗ Error: %v", err)
 		os.Exit(1)
 	}
 
-	color.Cyan("📡 Scanning network: %s", network.String())
-	color.Cyan("🔌 Interface: %s", iface.Name)
-	fmt.Println()
-
 	scanner := &Scanner{
-		network: network,
-		timeout: 1 * time.Second,
-		workers: 100,
+		network:          lnet,
+		timeout:          1 * time.Second,
+		workers:          100,
+		serviceDetection: cfg.DetectServices,
 	}
 
-	devices := scanner.Scan()
+	if cfg.PeriodicScan {
+		runPeriodicScan(scanner, iface, lnet, cfg)
+	} else {
+		result := runSingleScan(scanner, iface, lnet)
 
-	if len(devices) == 0 {
-		color.Yellow("⚠ No devices found")
-		return
+		if cfg.JSONExport != "" {
+			exportJSON(result, cfg.JSONExport)
+		}
+	}
+}
+
+func parseFlags() config.Config {
+	cfg := config.Config{}
+
+	flag.StringVar(&cfg.JSONExport, "json", "", "Export results to JSON file")
+	flag.StringVar(&cfg.JSONExport, "j", "", "Export results to JSON file (shorthand)")
+	flag.BoolVar(&cfg.DetectServices, "services", false, "Detect services on open ports")
+	flag.BoolVar(&cfg.DetectServices, "s", false, "Detect services on open ports (shorthand)")
+	flag.BoolVar(&cfg.PeriodicScan, "watch", false, "Continuous scanning mode")
+	flag.BoolVar(&cfg.PeriodicScan, "w", false, "Continuous scanning mode (shorthand)")
+	flag.DurationVar(&cfg.ScanInterval, "interval", 30*time.Second, "Scan interval for watch mode")
+	flag.BoolVar(&cfg.ShowChangesOnly, "changes", false, "Show only changes in watch mode")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Network Device Discovery Tool\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  %s                           # Basic scan\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -s                        # Scan with service detection\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -j results.json           # Export to JSON\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -w -interval 60s          # Watch mode, scan every 60s\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -w -changes               # Watch mode, show only changes\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -s -j results.json        # Full scan with JSON export\n", os.Args[0])
 	}
 
-	printDevices(devices)
+	flag.Parse()
+	return cfg
 }
 
 func printBanner() {
@@ -71,46 +139,175 @@ Fast • Beautiful • Production Ready
 	color.Cyan(banner)
 }
 
-func getLocalNetwork() (*net.Interface, *net.IPNet, error) {
-	interfaces, err := net.Interfaces()
+func runSingleScan(scanner *Scanner, iface *net.Interface, lnet *net.IPNet) ScanResult {
+	color.Cyan("📡 Scanning network: %s", lnet.String())
+	color.Cyan("🔌 Interface: %s", iface.Name)
+	if scanner.serviceDetection {
+		color.Cyan("🔎 Service Detection: enabled")
+	}
+	fmt.Println()
+
+	start := time.Now()
+	devices := scanner.Scan()
+	duration := time.Since(start)
+
+	result := ScanResult{
+		TimeStamp: time.Now(),
+		Network:   lnet.String(),
+		Interface: iface.Name,
+		Duration:  duration.String(),
+		Total:     len(devices),
+		Devices:   devices,
+	}
+
+	if len(devices) == 0 {
+		color.Yellow("⚠ No devices found")
+		return result
+	}
+
+	color.Green("\n✓ Scan completed in %v", duration)
+	color.Green("✓ Found %d active devices\n", len(devices))
+
+	output.PrintDevices(devices, scanner.serviceDetection)
+
+	return result
+}
+
+func runPeriodicScan(scanner *Scanner, iface *net.Interface, lnet *net.IPNet, config config.Config) {
+	color.Cyan("📡 Network: %s", lnet.String())
+	color.Cyan("🔌 Interface: %s", iface.Name)
+	color.Cyan("⏱️  Interval: %v", config.ScanInterval)
+	if config.ShowChangesOnly {
+		color.Cyan("👁️ Mode: Changes only")
+	}
+	fmt.Println()
+
+	previousDevices := make(map[string]model.Device)
+	scanCount := 0
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	ticker := time.NewTicker(config.ScanInterval)
+	defer ticker.Stop()
+
+	runPeriodicScanIteration(scanner, &previousDevices, &scanCount, config.ShowChangesOnly, true)
+
+	for {
+		select {
+		case <-ticker.C:
+			runPeriodicScanIteration(scanner, &previousDevices, &scanCount, config.ShowChangesOnly, false)
+		case <-sigChan:
+			color.Yellow("\n\n⏹️ Stopping periodic scan...")
+			color.Green("📊 Total scans performed: %d", scanCount)
+			return
+		}
+	}
+}
+
+func runPeriodicScanIteration(scanner *Scanner, previousDevices *map[string]model.Device, scanCount *int, showChangesOnly bool, isFirst bool) {
+	*scanCount++
+
+	timestamp := time.Now().Format("15:04:05")
+	color.HiWhite("\n═══════════════════════════════════════")
+	color.HiCyan("🔄 Scan #%d - %s", *scanCount, timestamp)
+	color.HiWhite("═══════════════════════════════════════")
+
+	devices := scanner.Scan()
+
+	added, removed, changed := detectChanges(*previousDevices, devices)
+
+	if showChangesOnly && !isFirst {
+		if len(added) == 0 && len(removed) == 0 && len(changed) == 0 {
+			color.Green("✓ No changes detected (%d devices)", len(devices))
+		} else {
+			printChanges(added, removed, changed)
+		}
+	} else {
+		color.Green("\n✓ Found %d active devices", len(devices))
+		if len(added) > 0 || len(removed) > 0 || len(changed) > 0 {
+			printChanges(added, removed, changed)
+		}
+		fmt.Println()
+		output.PrintDevices(devices, scanner.serviceDetection)
+	}
+
+	*previousDevices = make(map[string]model.Device)
+	for _, d := range devices {
+		(*previousDevices)[d.IP] = *d
+	}
+}
+
+func detectChanges(previous map[string]model.Device, current []*model.Device) (added, removed, changed []*model.Device) {
+	currentMap := make(map[string]model.Device)
+	for _, d := range current {
+		currentMap[d.IP] = *d
+	}
+
+	for _, curr := range current {
+		prev, existed := previous[curr.IP]
+		if !existed {
+			added = append(added, curr)
+		} else if deviceChanged(prev, *curr) {
+			changed = append(changed, curr)
+		}
+	}
+
+	for ip, prev := range previous {
+		if _, exists := currentMap[ip]; !exists {
+			removed = append(removed, &prev)
+		}
+	}
+	return
+}
+
+func deviceChanged(prev, curr model.Device) bool {
+	return prev.MAC != curr.MAC || prev.Hostname != curr.Hostname || len(prev.Services) != len(curr.Services)
+}
+
+func printChanges(added, removed, changed []*model.Device) {
+	if len(added) > 0 {
+		color.Green("\n➕ New devices: %d", len(added))
+		for _, d := range added {
+			color.Green("   • %s -%s (%s)", d.IP, d.Hostname, d.MAC)
+		}
+	}
+
+	if len(removed) > 0 {
+		color.Red("\n➖ Removed devices: %d", len(removed))
+		for _, d := range removed {
+			color.Red("   • %s - %s (%s)", d.IP, d.Hostname, d.MAC)
+		}
+	}
+
+	if len(changed) > 0 {
+		color.Yellow("\n🔄 Changed devices %d", len(changed))
+		for _, d := range changed {
+			color.Yellow("   • %s - %s (%s)", d.IP, d.Hostname, d.MAC)
+		}
+	}
+}
+
+func exportJSON(result ScanResult, filename string) {
+	data, err := json.MarshalIndent(result, "", " ")
 	if err != nil {
-		return nil, nil, err
+		color.Red("✗ Error creating JSON: %v", err)
+		return
 	}
 
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok || ipNet.IP.To4() == nil {
-				continue
-			}
-
-			return &iface, ipNet, nil
-		}
+	err = os.WriteFile(filename, data, 0644)
+	if err != nil {
+		color.Red("✗ Error writing file: %v", err)
+		return
 	}
 
-	return nil, nil, fmt.Errorf("no active network interface found")
+	color.Green("\n📄 Results exported to %s", filename)
 }
 
 func (s *Scanner) Scan() []*model.Device {
 	ips := s.getIPRange()
 
-	color.Green("🔍 Scanning %d hosts...\n", len(ips))
-
-	start := time.Now()
 	devices := s.scanIPs(ips)
-	duration := time.Since(start)
-
-	color.Green("\n✓ Scan completed in %v", duration)
-	color.Green("✓ Found %d active devices\n", len(devices))
 
 	return devices
 }
@@ -185,13 +382,23 @@ func (s *Scanner) scanIPs(ips []net.IP) []*model.Device {
 }
 
 func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (*model.Device, bool) {
-	if !ping(ctx, ip.String(), s.timeout) {
-		return &model.Device{}, false
+	now := time.Now()
+	device := &model.Device{
+		IP:        ip.String(),
+		Status:    "Active",
+		FirstSeen: now,
+		LastSeen:  now,
 	}
 
-	device := &model.Device{
-		IP:     ip,
-		Status: "Active",
+	if s.serviceDetection {
+		device.Services = s.detectServices(ctx, ip.String())
+		if len(device.Services) == 0 {
+			return &model.Device{}, false
+		}
+	} else {
+		if !ping(ctx, ip.String(), s.timeout) {
+			return &model.Device{}, false
+		}
 	}
 
 	oui, _ := vendors.Load("oui.txt")
@@ -206,6 +413,46 @@ func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (*model.Device, bool)
 	}
 
 	return device, true
+}
+
+func (s *Scanner) detectServices(ctx context.Context, ip string) []model.Service {
+	var services []model.Service
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, port := range commonPorts {
+		wg.Add(1)
+		go func(port int) {
+			defer wg.Done()
+
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), s.timeout)
+			if err != nil {
+				conn.Close()
+
+				serviceName := serviceMap[port]
+				if serviceName == "" {
+					serviceName = "Unknown"
+				}
+
+				mu.Lock()
+				services = append(services, model.Service{
+					Port:     port,
+					Protocol: "tcp",
+					Service:  serviceName,
+					State:    "open",
+				})
+				mu.Unlock()
+			}
+		}(port)
+	}
+
+	wg.Wait()
+
+	sort.Slice(services, func(i, j int) bool {
+		return services[i].Port < services[j].Port
+	})
+
+	return services
 }
 
 func ping(ctx context.Context, ip string, timeout time.Duration) bool {
@@ -270,52 +517,6 @@ func getHostname(ip string) string {
 	hostname = strings.TrimSuffix(hostname, ".")
 
 	return hostname
-}
-
-func printDevices(devices []*model.Device) {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"IP Address", "MAC Address", "Hostname", "Manufacturer", "Status"})
-
-	table.SetBorder(true)
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetHeaderColor(
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgCyanColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgCyanColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgCyanColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgCyanColor},
-		tablewriter.Colors{tablewriter.Bold, tablewriter.FgCyanColor},
-	)
-	table.SetColumnColor(
-		tablewriter.Colors{tablewriter.FgYellowColor},
-		tablewriter.Colors{tablewriter.FgBlueColor},
-		tablewriter.Colors{tablewriter.FgGreenColor},
-		tablewriter.Colors{tablewriter.FgMagentaColor},
-		tablewriter.Colors{tablewriter.FgGreenColor},
-	)
-
-	for _, device := range devices {
-		hostname := device.Hostname
-		if hostname == "" {
-			hostname = "-"
-		}
-
-		mac := device.MAC
-		if mac == "" {
-			mac = "-"
-		}
-
-		table.Append([]string{
-			device.IP,
-			mac,
-			hostname,
-			device.Manufacturer,
-			device.Status,
-		})
-	}
-
-	table.Render()
 }
 
 func ipToInt(ip string) uint32 {

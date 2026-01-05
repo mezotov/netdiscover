@@ -1,19 +1,20 @@
 package model
 
 import (
-	"net"
 	"time"
 )
 
 type Device struct {
-	ID           string
-	IP           net.Addr
-	MAC          net.HardwareAddr
-	Hostname     string
-	Manufacturer string
-	Status       string
-	LastSeen     time.Time
-	Confidence   Confidence
+	ID           string     `json:"id"`
+	IP           string     `json:"ip"`
+	MAC          string     `json:"mac"`
+	Hostname     string     `json:"hostname"`
+	Manufacturer string     `json:"manufacturer"`
+	Status       string     `json:"status"`
+	Services     []Service  `json:"services"`
+	FirstSeen    time.Time  `json:"first_seen"`
+	LastSeen     time.Time  `json:"last_seen"`
+	Confidence   Confidence `json:"confidence"`
 }
 
 func NewDevice(id string) *Device {
