@@ -7,12 +7,13 @@ import (
 )
 
 type Device struct {
-	ID        string
-	MAC       net.HardwareAddr
-	IPs       map[netip.Addr]time.Time
-	Hostnames map[string]time.Time
-	Vendor    string
-	LastSeen  time.Time
+	ID         string
+	MAC        net.HardwareAddr
+	IPs        map[netip.Addr]time.Time
+	Hostnames  map[string]time.Time
+	Vendor     string
+	LastSeen   time.Time
+	Confidence Confidence
 }
 
 func NewDevice(id string) *Device {

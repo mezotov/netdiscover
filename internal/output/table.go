@@ -8,12 +8,14 @@ import (
 )
 
 func PrintTable(devices []*model.Device) {
-	fmt.Printf("%-40s %-18s %-20s\n", "ID", "MAC", "HOSTNAMES")
+	fmt.Printf("%-40s %-18s %-25s %-10s %-10s\n", "ID", "MAC", "VENDOR", "CONF", "HOSTNAMES")
 	for _, d := range devices {
 		fmt.Printf(
-			"%-40s %-18s %-20s\n",
+			"%-40s %-18s %-25s %-10d %-10s\n",
 			d.ID,
 			d.MAC,
+			d.Vendor,
+			d.Confidence.Score,
 			strings.Join(keys(d.Hostnames), ","),
 		)
 	}

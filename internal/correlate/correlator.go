@@ -14,10 +14,11 @@ import (
 type Correlator struct {
 	store    store.Store
 	progress func(string)
+	vendor   func(string) string
 }
 
-func New(s store.Store, progress func(string)) *Correlator {
-	return &Correlator{store: s, progress: progress}
+func New(s store.Store, progress func(string), vendor func(string) string) *Correlator {
+	return &Correlator{store: s, progress: progress, vendor: vendor}
 }
 
 func (c *Correlator) Run(ctx context.Context, in <-chan discovery.Sighting) {
@@ -52,6 +53,12 @@ func (c *Correlator) apply(s discovery.Sighting) {
 	}
 
 	d.LastSeen = time.Now()
+	d.Confidence.Add(s.Source)
+
+	if d.Vendor == "" && len(d.MAC) > 0 && c.vendor != nil {
+		d.Vendor = c.vendor(d.MAC.String())
+	}
+
 	c.store.Save(d)
 }
 

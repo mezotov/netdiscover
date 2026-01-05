@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/mezotov/netdiscover/internal/aging"
 	"github.com/mezotov/netdiscover/internal/api"
 	"github.com/mezotov/netdiscover/internal/config"
 	"github.com/mezotov/netdiscover/internal/correlate"
@@ -17,6 +18,7 @@ import (
 	"github.com/mezotov/netdiscover/internal/output"
 	"github.com/mezotov/netdiscover/internal/progress"
 	"github.com/mezotov/netdiscover/internal/store"
+	"github.com/mezotov/netdiscover/internal/vendors"
 )
 
 func main() {
@@ -25,6 +27,7 @@ func main() {
 	cfg := config.Config{}
 
 	jsonOut := flag.Bool("json", false, "output JSON")
+	maxAge := flag.Duration("max-age", 10*time.Minute, "device expiry age")
 
 	flag.BoolVar(&cfg.EnableARP, "arp", true, "enable ARP discovery")
 	flag.BoolVar(&cfg.EnableICMP, "icmp", true, "enable ICMP discovery")
@@ -39,11 +42,13 @@ func main() {
 
 	sightings := make(chan discovery.Sighting, 256)
 
+	oui, _ := vendors.Load("oui.txt")
+
 	tracker := progress.New()
 	tracker.Start()
 
 	memStore := store.NewMemoryStore()
-	corr := correlate.New(memStore, tracker.Increment)
+	corr := correlate.New(memStore, tracker.Increment, oui.Vendor)
 
 	go corr.Run(ctx, sightings)
 
@@ -78,6 +83,9 @@ func main() {
 	time.Sleep(300 * time.Millisecond)
 
 	tracker.Stop()
+
+	devices := memStore.All()
+	devices = aging.Expire(devices, *maxAge)
 
 	if *jsonOut {
 		output.PrintJSON(memStore.All())
