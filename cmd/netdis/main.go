@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"netdis/internal/model"
 	"netdis/internal/vendors"
 	"os"
 	"os/exec"
@@ -17,14 +18,6 @@ import (
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 )
-
-type Device struct {
-	IP           string
-	MAC          string
-	Hostname     string
-	Manufacturer string
-	Status       string
-}
 
 type Scanner struct {
 	network *net.IPNet
@@ -72,6 +65,7 @@ func printBanner() {
 /**    //***/********    /**    /*******  /** ********  //******  //*******     //**    /********/**   //**
 //      /// ////////     //     ///////   // ////////    //////    ///////       //     //////// //     // 
 
+Fast • Beautiful • Production Ready 
 
 `
 	color.Cyan(banner)
@@ -106,7 +100,7 @@ func getLocalNetwork() (*net.Interface, *net.IPNet, error) {
 	return nil, nil, fmt.Errorf("no active network interface found")
 }
 
-func (s *Scanner) Scan() []Device {
+func (s *Scanner) Scan() []*model.Device {
 	ips := s.getIPRange()
 
 	color.Green("🔍 Scanning %d hosts...\n", len(ips))
@@ -147,9 +141,9 @@ func inc(ip net.IP) {
 	}
 }
 
-func (s *Scanner) scanIPs(ips []net.IP) []Device {
+func (s *Scanner) scanIPs(ips []net.IP) []*model.Device {
 	var wg sync.WaitGroup
-	deviceChan := make(chan Device, len(ips))
+	deviceChan := make(chan *model.Device, len(ips))
 	semaphore := make(chan struct{}, s.workers)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -178,7 +172,7 @@ func (s *Scanner) scanIPs(ips []net.IP) []Device {
 		close(deviceChan)
 	}()
 
-	var devices []Device
+	var devices []*model.Device
 	for device := range deviceChan {
 		devices = append(devices, device)
 	}
@@ -190,13 +184,13 @@ func (s *Scanner) scanIPs(ips []net.IP) []Device {
 	return devices
 }
 
-func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (Device, bool) {
+func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (*model.Device, bool) {
 	if !ping(ctx, ip.String(), s.timeout) {
-		return Device{}, false
+		return &model.Device{}, false
 	}
 
-	device := Device{
-		IP:     ip.String(),
+	device := &model.Device{
+		IP:     ip,
 		Status: "Active",
 	}
 
@@ -278,7 +272,7 @@ func getHostname(ip string) string {
 	return hostname
 }
 
-func printDevices(devices []Device) {
+func printDevices(devices []*model.Device) {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"IP Address", "MAC Address", "Hostname", "Manufacturer", "Status"})
 
