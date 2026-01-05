@@ -12,11 +12,12 @@ import (
 )
 
 type Correlator struct {
-	store store.Store
+	store    store.Store
+	progress func(string)
 }
 
-func New(s store.Store) *Correlator {
-	return &Correlator{store: s}
+func New(s store.Store, progress func(string)) *Correlator {
+	return &Correlator{store: s, progress: progress}
 }
 
 func (c *Correlator) Run(ctx context.Context, in <-chan discovery.Sighting) {
@@ -25,6 +26,9 @@ func (c *Correlator) Run(ctx context.Context, in <-chan discovery.Sighting) {
 		case <-ctx.Done():
 			return
 		case s := <-in:
+			if c.progress != nil {
+				c.progress(s.Source)
+			}
 			c.apply(s)
 		}
 	}
@@ -52,7 +56,11 @@ func (c *Correlator) apply(s discovery.Sighting) {
 }
 
 func deviceID(s discovery.Sighting) string {
+	if len(s.MAC) > 0 {
+		return s.MAC.String()
+	}
+
 	h := sha1.New()
 	h.Write([]byte(s.IP.String()))
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("ip:%x", h.Sum(nil))
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/mezotov/netdiscover/internal/correlate"
 	"github.com/mezotov/netdiscover/internal/discovery"
 	"github.com/mezotov/netdiscover/internal/output"
+	"github.com/mezotov/netdiscover/internal/progress"
 	"github.com/mezotov/netdiscover/internal/store"
 )
 
@@ -38,8 +39,11 @@ func main() {
 
 	sightings := make(chan discovery.Sighting, 256)
 
+	tracker := progress.New()
+	tracker.Start()
+
 	memStore := store.NewMemoryStore()
-	corr := correlate.New(memStore)
+	corr := correlate.New(memStore, tracker.Increment)
 
 	go corr.Run(ctx, sightings)
 
@@ -73,6 +77,8 @@ func main() {
 	cancel()
 	time.Sleep(300 * time.Millisecond)
 
+	tracker.Stop()
+
 	if *jsonOut {
 		output.PrintJSON(memStore.All())
 	} else {
@@ -88,6 +94,8 @@ func printBanner() {
 | . - ||  __|  | | | | | | | |  --. \ |   | | | || | | |  __||    /
 | |\  || |___  | | | |/ / _| |_/\__/ / \__/\ \_/ /\ \_/ / |___| |\ \
 \_| \_/\____/  \_/ |___/  \___/\____/ \____/\___/  \___/\____/\_| \_|
+
+
 `
 
 	color.Cyan(banner)
