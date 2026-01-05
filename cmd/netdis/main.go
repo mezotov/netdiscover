@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"netdis/internal/vendors"
 	"os"
 	"os/exec"
 	"runtime"
@@ -62,9 +63,16 @@ func main() {
 
 func printBanner() {
 	banner := `
-╔═══════════════════════════════════════════╗
-║   🌐  NETWORK DEVICE DISCOVERY TOOL  🌐   ║
-╚═══════════════════════════════════════════╝
+ ****     ** ******** ********** *******   **  ********   ******    *******   **      ** ******** *******  
+/**/**   /**/**///// /////**/// /**////** /** **//////   **////**  **/////** /**     /**/**///// /**////** 
+/**//**  /**/**          /**    /**    /**/**/**        **    //  **     //**/**     /**/**      /**   /** 
+/** //** /**/*******     /**    /**    /**/**/*********/**       /**      /**//**    ** /******* /*******  
+/**  //**/**/**////      /**    /**    /**/**////////**/**       /**      /** //**  **  /**////  /**///**  
+/**   //****/**          /**    /**    ** /**       /**//**    **//**     **   //****   /**      /**  //** 
+/**    //***/********    /**    /*******  /** ********  //******  //*******     //**    /********/**   //**
+//      /// ////////     //     ///////   // ////////    //////    ///////       //     //////// //     // 
+
+
 `
 	color.Cyan(banner)
 }
@@ -192,9 +200,11 @@ func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (Device, bool) {
 		Status: "Active",
 	}
 
+	oui, _ := vendors.Load("oui.txt")
+
 	if mac := getMAC(ip.String()); mac != "" {
 		device.MAC = mac
-		device.Manufacturer = getMACVendor(mac)
+		device.Manufacturer = oui.Vendor(mac)
 	}
 
 	if hostname := getHostname(ip.String()); hostname != "" {
@@ -266,33 +276,6 @@ func getHostname(ip string) string {
 	hostname = strings.TrimSuffix(hostname, ".")
 
 	return hostname
-}
-
-func getMACVendor(mac string) string {
-	vendors := map[string]string{
-		"00:50:56": "VMware",
-		"00:0C:29": "VMware",
-		"00:05:69": "VMware",
-		"08:00:27": "VirtualBox",
-		"52:54:00": "QEMU/KVM",
-		"00:15:5D": "Microsoft Hyper-V",
-		"00:16:3E": "Xen",
-		"DC:A6:32": "Raspberry Pi",
-		"B8:27:EB": "Raspberry Pi",
-		"E4:5F:01": "Raspberry Pi",
-		"00:1B:63": "Apple",
-		"00:03:93": "Apple",
-		"00:1E:C2": "Apple",
-	}
-
-	if len(mac) >= 8 {
-		prefix := mac[:8]
-		if vendor, ok := vendors[prefix]; ok {
-			return vendor
-		}
-	}
-
-	return "Unknown"
 }
 
 func printDevices(devices []Device) {
