@@ -7,6 +7,7 @@ import (
 	"netdis/internal/model"
 	"netdis/internal/network"
 	"netdis/internal/scanner"
+	"netdis/internal/storage"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -340,7 +341,7 @@ func runSearch(cmd *cobra.Command, args []string) {
 }
 
 func runHistory(cmd *cobra.Command, args []string) {
-	store, err := initiStorage()
+	store, err := initStorage()
 	if err != nil {
 		display.PrintError("✗ Failed to initialize storage: %v", err)
 		os.Exit(1)
