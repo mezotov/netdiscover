@@ -24,7 +24,7 @@ type ScanResult struct {
 	Interface string    `json:"interface" db:"interface"`
 	Duration  string    `json:"duration" db:"duration"`
 	Total     int       `json:"total_devices" db:"total_devices"`
-	Devices   []*Device `json:"devices" db:"-"`
+	Devices   []Device  `json:"devices" db:"-"`
 }
 
 type SearchFilter struct {

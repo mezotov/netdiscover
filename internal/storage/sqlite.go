@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Storage struct {
@@ -15,7 +15,7 @@ type Storage struct {
 }
 
 func New(dbPath string) (*Storage, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -84,7 +84,7 @@ func (s *Storage) initSchema() error {
 	return err
 }
 
-func (s *Storage) SaveScanResult(result *model.ScanResult) error {
+func (s *Storage) SaveScanResult(result model.ScanResult) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -132,7 +132,7 @@ func (s *Storage) SaveScanResult(result *model.ScanResult) error {
 	return tx.Commit()
 }
 
-func (s *Storage) SearchDevices(filter model.SearchFilter) ([]*model.Device, error) {
+func (s *Storage) SearchDevices(filter model.SearchFilter) ([]model.Device, error) {
 	query := `SELECT DISTINCT d.id, d.ip, d.mac, d.hostname, d.manufacturer, d.status, d.first_seen, d.last_seen FROM devices d WHERE 1=1`
 	args := []interface{}{filter.IP, filter.MAC}
 
@@ -184,7 +184,7 @@ func (s *Storage) SearchDevices(filter model.SearchFilter) ([]*model.Device, err
 	}
 	defer rows.Close()
 
-	var devices []*model.Device
+	var devices []model.Device
 	for rows.Next() {
 		var d model.Device
 		err := rows.Scan(&d.ID, &d.IP, &d.MAC, &d.Hostname, &d.Manufacturer,
@@ -199,7 +199,7 @@ func (s *Storage) SearchDevices(filter model.SearchFilter) ([]*model.Device, err
 		}
 		d.Services = services
 
-		devices = append(devices, &d)
+		devices = append(devices, d)
 	}
 
 	return devices, rows.Err()
@@ -228,7 +228,7 @@ func (s *Storage) getDeviceServices(deviceID int) ([]model.Service, error) {
 	return services, rows.Err()
 }
 
-func (s *Storage) GetScanHistory(limit int) ([]*model.ScanResult, error) {
+func (s *Storage) GetScanHistory(limit int) ([]model.ScanResult, error) {
 	rows, err := s.db.Query(`
 		SELECT id, timestamp, network, interface, duration, total_devices
 		FROM scan_results ORDER BY timestamp DESC LIMIT ?
@@ -238,14 +238,14 @@ func (s *Storage) GetScanHistory(limit int) ([]*model.ScanResult, error) {
 	}
 	defer rows.Close()
 
-	var results []*model.ScanResult
+	var results []model.ScanResult
 	for rows.Next() {
 		var r model.ScanResult
 		err := rows.Scan(&r.ID, &r.TimeStamp, &r.Network, &r.Interface, &r.Duration, &r.Total)
 		if err != nil {
 			return nil, err
 		}
-		results = append(results, &r)
+		results = append(results, r)
 	}
 
 	return results, rows.Err()

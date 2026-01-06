@@ -53,7 +53,7 @@ func New(network *net.IPNet, detectServices bool) *Scanner {
 	}
 }
 
-func (s *Scanner) Scan() []*model.Device {
+func (s *Scanner) Scan() []model.Device {
 	ips := s.getIPRange()
 	devices := s.scanIPs(ips)
 
@@ -86,9 +86,9 @@ func inc(ip net.IP) {
 	}
 }
 
-func (s *Scanner) scanIPs(ips []net.IP) []*model.Device {
+func (s *Scanner) scanIPs(ips []net.IP) []model.Device {
 	var wg sync.WaitGroup
-	deviceChan := make(chan *model.Device, len(ips))
+	deviceChan := make(chan model.Device, len(ips))
 	semaphore := make(chan struct{}, s.workers)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -117,7 +117,7 @@ func (s *Scanner) scanIPs(ips []net.IP) []*model.Device {
 		close(deviceChan)
 	}()
 
-	var devices []*model.Device
+	var devices []model.Device
 	for device := range deviceChan {
 		devices = append(devices, device)
 	}
@@ -129,9 +129,9 @@ func (s *Scanner) scanIPs(ips []net.IP) []*model.Device {
 	return devices
 }
 
-func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (*model.Device, bool) {
+func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (model.Device, bool) {
 	now := time.Now()
-	device := &model.Device{
+	device := model.Device{
 		IP:        ip.String(),
 		Status:    "Active",
 		FirstSeen: now,
@@ -141,11 +141,11 @@ func (s *Scanner) scanHost(ctx context.Context, ip net.IP) (*model.Device, bool)
 	if s.serviceDetection {
 		device.Services = s.scanServices(ctx, ip.String())
 		if len(device.Services) == 0 {
-			return &model.Device{}, false
+			return model.Device{}, false
 		}
 	} else {
 		if !ping(ctx, ip.String(), s.timeout) {
-			return &model.Device{}, false
+			return model.Device{}, false
 		}
 	}
 
@@ -174,7 +174,7 @@ func (s *Scanner) scanServices(ctx context.Context, ip string) []model.Service {
 			defer wg.Done()
 
 			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), s.timeout)
-			if err != nil {
+			if err == nil {
 				conn.Close()
 
 				serviceName := serviceMap[port]
