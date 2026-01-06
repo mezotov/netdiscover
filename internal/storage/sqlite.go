@@ -107,7 +107,7 @@ func (s *Storage) SaveScanResult(result model.ScanResult) error {
 	for _, device := range result.Devices {
 		res, err := tx.Exec(`
 			INSERT INTO devices (scan_id, ip, mac, hostname, manufacturer, status, first_seen, last_seen)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`, scanID, device.IP, device.MAC, device.Hostname, device.Manufacturer, device.Status, device.FirstSeen, device.LastSeen)
 		if err != nil {
 			return err

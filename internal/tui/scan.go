@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -22,6 +23,7 @@ type ScanModel struct {
 	scanning           bool
 	devices            []model.Device
 	spinner            spinner.Model
+	table              table.Model
 	status             string
 	err                error
 	iface              *net.Interface
@@ -41,12 +43,38 @@ type ScanModel struct {
 
 func NewScanModel(store *storage.Storage) *ScanModel {
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = spinner.Globe
 	s.Style = lipgloss.NewStyle().Foreground(styles.Primary)
+
+	columns := []table.Column{
+		{Title: "IP Address", Width: 15},
+		{Title: "MAC Address", Width: 17},
+		{Title: "Hostname", Width: 25},
+		{Title: "Manufacturer", Width: 20},
+		{Title: "Status", Width: 10},
+	}
+
+	t := table.New(
+		table.WithColumns(columns),
+		table.WithFocused(true),
+		table.WithHeight(20),
+	)
+
+	sStyle := table.DefaultStyles()
+	sStyle.Header = sStyle.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(true)
+	sStyle.Selected = sStyle.Selected.
+		Foreground(styles.Primary).
+		Bold(true)
+	t.SetStyles(sStyle)
 
 	return &ScanModel{
 		store:          store,
 		spinner:        s,
+		table:          t,
 		status:         "Ready to scan",
 		detectServices: false,
 		watchMode:      false,
@@ -91,6 +119,7 @@ func (m *ScanModel) startScan() tea.Cmd {
 }
 
 func (m *ScanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.selectingInterface {
@@ -165,8 +194,11 @@ func (m *ScanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !m.scanning {
 					m.showingOptions = true
 					m.devices = nil
+					m.table.SetRows([]table.Row{})
 				}
 			}
+			m.table, cmd = m.table.Update(msg)
+			return m, cmd
 		}
 
 	case scanCompleteMsg:
@@ -179,6 +211,26 @@ func (m *ScanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			duration := time.Since(m.startTime)
 			m.status = fmt.Sprintf("Scan completed in %v - Found %d devices", duration, len(msg.devices))
 
+			rows := make([]table.Row, len(msg.devices))
+			for i, device := range msg.devices {
+				hostname := device.Hostname
+				if hostname == "" {
+					hostname = "-"
+				}
+				mac := device.MAC
+				if mac == "" {
+					mac = "-"
+				}
+				rows[i] = table.Row{
+					device.IP,
+					mac,
+					hostname,
+					device.Manufacturer,
+					device.Status,
+				}
+			}
+			m.table.SetRows(rows)
+
 			result := model.ScanResult{
 				TimeStamp: time.Now(),
 				Network:   m.network.String(),
@@ -187,7 +239,11 @@ func (m *ScanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Total:     len(msg.devices),
 				Devices:   msg.devices,
 			}
-			m.store.SaveScanResult(result)
+			err := m.store.SaveScanResult(result)
+			if err != nil {
+				m.err = err
+				m.status += " (Failed to save scan result)"
+			}
 
 			if m.watchMode {
 				time.Sleep(30 * time.Second)
@@ -286,7 +342,10 @@ func (m *ScanModel) View() string {
 		}
 
 		if len(m.devices) > 0 {
-			s.WriteString(m.renderDeviceTable())
+			s.WriteString(styles.BaseStyle.Render(m.table.View()))
+			s.WriteString("\n\n")
+		} else if !m.scanning {
+			s.WriteString(styles.WarningStyle.Render("No devices found"))
 			s.WriteString("\n\n")
 		}
 
@@ -295,37 +354,6 @@ func (m *ScanModel) View() string {
 		} else {
 			s.WriteString(styles.RenderHelp("Esc: Cancel Scan"))
 		}
-	}
-
-	return s.String()
-}
-
-func (m *ScanModel) renderDeviceTable() string {
-	if len(m.devices) == 0 {
-		return styles.WarningStyle.Render("No devices found")
-	}
-
-	var s strings.Builder
-
-	header := fmt.Sprintf("%-15s %-17s %-25s %-20s %-10s",
-		"IP Address", "MAC Address", "Hostname", "Manufacturer", "Status")
-	s.WriteString(styles.TableHeaderStyle.Render(header))
-	s.WriteString("\n")
-
-	for _, device := range m.devices {
-		hostname := device.Hostname
-		if hostname == "" {
-			hostname = "-"
-		}
-		mac := device.MAC
-		if mac == "" {
-			mac = "-"
-		}
-
-		row := fmt.Sprintf("%-15s %-17s %-25s %-20s %-10s",
-			device.IP, mac, truncate(hostname, 25), truncate(device.Manufacturer, 20), device.Status)
-		s.WriteString(styles.TableCellStyle.Render(row))
-		s.WriteString("\n")
 	}
 
 	return s.String()

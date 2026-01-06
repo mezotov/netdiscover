@@ -5,16 +5,15 @@ import (
 )
 
 type Device struct {
-	ID           int        `json:"id" db:"id"`
-	IP           string     `json:"ip" db:"ip"`
-	MAC          string     `json:"mac" db:"mac"`
-	Hostname     string     `json:"hostname" db:"hostname"`
-	Manufacturer string     `json:"manufacturer" db:"manufacturer"`
-	Status       string     `json:"status" db:"status"`
-	Services     []Service  `json:"services" db:"-"`
-	FirstSeen    time.Time  `json:"first_seen" db:"first_seen"`
-	LastSeen     time.Time  `json:"last_seen" db:"last_seen"`
-	Confidence   Confidence `json:"confidence" db:"confidence"`
+	ID           int       `json:"id" db:"id"`
+	IP           string    `json:"ip" db:"ip"`
+	MAC          string    `json:"mac" db:"mac"`
+	Hostname     string    `json:"hostname" db:"hostname"`
+	Manufacturer string    `json:"manufacturer" db:"manufacturer"`
+	Status       string    `json:"status" db:"status"`
+	Services     []Service `json:"services" db:"-"`
+	FirstSeen    time.Time `json:"first_seen" db:"first_seen"`
+	LastSeen     time.Time `json:"last_seen" db:"last_seen"`
 }
 
 type ScanResult struct {
